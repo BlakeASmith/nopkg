@@ -34,7 +34,7 @@ def cli():
 @click.argument("source")
 @click.option("-e", "--dev", is_flag=True, help="Development mode")
 def install(source: str, dev: bool):
-    """Install a Python module from a file, URL, or directory."""
+    """Install a Python module from a file or directory."""
     success, message, analysis_data = install_module(source, None, dev)
     
     if success:

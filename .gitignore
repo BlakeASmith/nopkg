@@ -1,2 +1,3 @@
 nopkg.egg-info/
 nopkg/__pycache__
+tests/__pycache__
