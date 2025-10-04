@@ -124,7 +124,6 @@ But also means:
 
 - `nopkg pipify mymodule.py`: Setup the boilerplate for full python packaging and pypi publishing
 
-
 ## License
 
 MIT

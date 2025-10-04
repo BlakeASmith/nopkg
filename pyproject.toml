@@ -3,16 +3,16 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "python-lib-template"
+name = "nopkg"
 version = "0.1.0"
-description = "Template repository for python library with pypi publishing"
+description = "Install your custom python modules into any python environment without setup.py, pyproject.toml, or any other typical python packaging setup"
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "Blake", email = "blake@dotle.ca"},
 ]
-keywords = ["python", "library", "template"]
+keywords = ["python", "modules", "installation", "packaging"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -22,9 +22,14 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Archiving :: Packaging",
 ]
 
-dependencies = []
+dependencies = [
+    "click>=8.0",
+    "importlib-metadata>=1.0; python_version<'3.8'",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -41,12 +46,15 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/python-lib-template"
-Repository = "https://github.com/yourusername/python-lib-template"
-Issues = "https://github.com/yourusername/python-lib-template/issues"
+Homepage = "https://github.com/blake/nopkg"
+Repository = "https://github.com/blake/nopkg"
+Issues = "https://github.com/blake/nopkg/issues"
+
+[project.scripts]
+nopkg = "nopkg.cli:cli"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
