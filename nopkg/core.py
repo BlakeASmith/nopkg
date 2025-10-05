@@ -6,7 +6,31 @@ import subprocess
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 
-from .analysis import analyze_module
+from .analysis import analyze_module, analyze_package
+
+
+def is_python_package(directory: Path) -> bool:
+    """Check if a directory is a Python package (has __init__.py)."""
+    return (directory / "__init__.py").exists()
+
+
+def has_python_files(directory: Path) -> bool:
+    """Check if a directory contains any Python files."""
+    return any(directory.glob("*.py"))
+
+
+def create_empty_init(directory: Path) -> bool:
+    """Create an empty __init__.py file in the directory.
+    
+    Returns:
+        bool: True if created successfully, False otherwise
+    """
+    try:
+        init_file = directory / "__init__.py"
+        init_file.write_text("# added by nopkg\n")
+        return True
+    except Exception:
+        return False
 
 
 def get_site_packages_dir(python_executable: str = sys.executable) -> Optional[Path]:
@@ -33,13 +57,12 @@ def get_site_packages_dir(python_executable: str = sys.executable) -> Optional[P
     return None
 
 
-def install_module(source: str, name: Optional[str] = None, dev_mode: bool = False, python_executable: str = sys.executable) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+def install_module(source: str, dev_mode: bool = False, python_executable: str = sys.executable) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
     """
     Install a Python module from a source (file path or directory).
     
     Args:
         source: Source path (local file or directory)
-        name: Optional custom name for the module
         dev_mode: If True, use .pth file instead of copying
         python_executable: Path to the Python executable to install for
         
@@ -52,43 +75,41 @@ def install_module(source: str, name: Optional[str] = None, dev_mode: bool = Fal
     
     source_path = Path(source)
     
-    # Handle directory installation
-    if source_path.is_dir():
-        success, message = _install_directory(source_path, site_packages, name, dev_mode)
-        return success, message, None  # Directory analysis not implemented yet
-    
-    # Handle single file installation
     if not source_path.exists():
         return False, f"Source file not found: {source}", None
     
-    # Determine module name
-    module_name = name if name else source_path.stem
+    if source_path.is_file() and source_path.suffix != '.py':
+        return False, f"Only Python files (.py) and packages are supported", None
     
-    # Install the module
+    if source_path.is_dir():
+        if not has_python_files(source_path):
+            return False, f"Directory '{source}' contains no Python files", None
+        
+        if not is_python_package(source_path) and not create_empty_init(source_path):
+            return False, f"Could not create __init__.py in directory '{source}'", None
+        
+        success, message = _install_package(source_path, site_packages, dev_mode)
+        analysis_data = analyze_package(source_path) if success else None
+        return success, message, analysis_data
+    
+    module_name = source_path.stem
     target_path = site_packages / f"{module_name}.py"
     
+    if target_path.exists():
+        existing_modules = _get_registered_modules()
+        if module_name in existing_modules:
+            return False, f"Module '{module_name}' is already installed by nopkg. Use 'nopkg uninstall {module_name}' first.", None
+        return False, f"Module '{module_name}' already exists (not managed by nopkg)", None
+    
     try:
-        if target_path.exists():
-            # Check if it's already managed by nopkg
-            existing_modules = _get_registered_modules()
-            if module_name in existing_modules:
-                return False, f"Module '{module_name}' is already installed by nopkg. Use 'nopkg uninstall {module_name}' first.", None
-            else:
-                return False, f"Module '{module_name}' already exists (not managed by nopkg)", None
-        
         if dev_mode:
-            # Create .pth file for development mode
             pth_path = site_packages / f"nopkg_{module_name}.pth"
             pth_path.write_text(str(source_path.parent.absolute()) + "\n")
         else:
             shutil.copy2(source_path, target_path)
         
-        # Register the installation
         _register_module(module_name, source, dev_mode)
-        
-        # Analyze the installed module for usage information
         analysis_data = analyze_module(target_path)
-        
         return True, f"Successfully installed module '{module_name}'", analysis_data
         
     except PermissionError:
@@ -101,68 +122,69 @@ def install_module(source: str, name: Optional[str] = None, dev_mode: bool = Fal
         return False, f"Failed to install module: {e}", None
 
 
-def _install_directory(source_dir: Path, site_packages: Path, name: Optional[str], dev_mode: bool) -> Tuple[bool, str]:
-    """Install all Python files from a directory."""
-    python_files = list(source_dir.glob("*.py"))
-    if not python_files:
-        return False, f"No Python files found in {source_dir}"
+def _install_package(source_dir: Path, site_packages: Path, dev_mode: bool) -> Tuple[bool, str]:
+    """Install a Python package (directory with __init__.py)."""
+    package_name = source_dir.name
+    target_path = site_packages / package_name
     
-    installed = []
-    for py_file in python_files:
-        module_name = py_file.stem
-        target_path = site_packages / f"{module_name}.py"
+    if target_path.exists():
+        existing_modules = _get_registered_modules()
+        if package_name in existing_modules:
+            return False, f"Package '{package_name}' is already installed by nopkg. Use 'nopkg uninstall {package_name}' first."
+        return False, f"Package '{package_name}' already exists (not managed by nopkg)"
+    
+    try:
+        if dev_mode:
+            pth_path = site_packages / f"nopkg_{package_name}.pth"
+            pth_path.write_text(str(source_dir.parent.absolute()) + "\n")
+        else:
+            shutil.copytree(source_dir, target_path)
         
-        try:
-            if target_path.exists():
-                continue  # Skip existing modules
-            
-            if dev_mode:
-                pth_path = site_packages / f"nopkg_{module_name}.pth"
-                pth_path.write_text(str(py_file.parent.absolute()) + "\n")
-            else:
-                shutil.copy2(py_file, target_path)
-            
-            _register_module(module_name, str(py_file), dev_mode)
-            installed.append(module_name)
-            
-        except Exception as e:
-            continue  # Skip files that fail to install
-    
-    if not installed:
-        return False, "No modules were installed"
-    
-    return True, f"Successfully installed modules: {', '.join(installed)}"
+        _register_module(package_name, str(source_dir), dev_mode)
+        return True, f"Successfully installed package '{package_name}'"
+        
+    except PermissionError:
+        return False, f"Permission denied: cannot write to {site_packages}"
+    except Exception as e:
+        return False, f"Failed to install package: {e}"
+
+
 
 
 def uninstall_module(module_name: str, python_executable: str = sys.executable) -> Tuple[bool, str]:
-    """Uninstall a module installed by nopkg."""
+    """Uninstall a module or package installed by nopkg."""
     site_packages = get_site_packages_dir(python_executable)
     if site_packages is None:
         return False, "Could not determine site-packages directory"
     
-    target_path = site_packages / f"{module_name}.py"
-    pth_path = site_packages / f"nopkg_{module_name}.pth"
+    module_path = site_packages / f"{module_name}.py"  # Single module file
+    package_path = site_packages / module_name  # Package directory
+    pth_path = site_packages / f"nopkg_{module_name}.pth"  # Dev mode
     
-    # Check if either the module file or .pth file exists
-    if not target_path.exists() and not pth_path.exists():
-        return False, f"Module {module_name} is not installed"
+    # Check if any form exists
+    if not module_path.exists() and not package_path.exists() and not pth_path.exists():
+        return False, f"Module/package '{module_name}' is not installed"
     
     try:
         # Remove the module file if it exists
-        if target_path.exists():
-            target_path.unlink()
+        if module_path.exists():
+            module_path.unlink()
+        
+        # Remove the package directory if it exists
+        if package_path.exists():
+            shutil.rmtree(package_path)
         
         # Remove the .pth file if it exists (dev mode installation)
         if pth_path.exists():
             pth_path.unlink()
         
         _unregister_module(module_name)
-        return True, f"Successfully uninstalled module '{module_name}'"
+        return True, f"Successfully uninstalled '{module_name}'"
             
     except PermissionError:
         return False, f"Permission denied: cannot remove files for {module_name}"
     except Exception as e:
-        return False, f"Failed to uninstall module: {e}"
+        return False, f"Failed to uninstall: {e}"
 
 
 def list_installed_modules() -> List[str]:
@@ -187,7 +209,7 @@ def update_module(module_name: str) -> Tuple[bool, str]:
                     success, msg = uninstall_module(module_name)
                     if not success:
                         return False, f"Failed to uninstall: {msg}"
-                    return install_module(source, module_name, mode == 'dev')[:2]
+                    return install_module(source, mode == 'dev')[:2]
     
     return False, f"Module '{module_name}' not found in registry"
 

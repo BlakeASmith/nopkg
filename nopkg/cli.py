@@ -34,15 +34,15 @@ def cli():
 @click.argument("source")
 @click.option("-e", "--dev", is_flag=True, help="Development mode")
 def install(source: str, dev: bool):
-    """Install a Python module from a file or directory."""
-    success, message, analysis_data = install_module(source, None, dev)
+    """Install a Python module or package from a file or directory."""
+    success, message, analysis_data = install_module(source, dev)
     
     if success:
         click.echo(click.style(message, fg='green'))
         
-        # Display usage information if analysis data is available
         if analysis_data:
-            module_name = Path(source).stem
+            source_path = Path(source)
+            module_name = source_path.name if source_path.is_dir() else source_path.stem
             usage_examples = generate_usage_examples(module_name, analysis_data)
             
             if usage_examples:
@@ -61,7 +61,7 @@ def install(source: str, dev: bool):
 @cli.command()
 @click.argument("module_name")
 def uninstall(module_name: str):
-    """Uninstall a module installed by nopkg."""
+    """Uninstall a module or package installed by nopkg."""
     success, message = uninstall_module(module_name)
     
     if success:
