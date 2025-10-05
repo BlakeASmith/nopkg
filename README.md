@@ -8,23 +8,30 @@ Use For:
 - Prototyping, evaluating the usefulness of a module before putting the effort into packaging
 - Sharing small utilities with your team, without maintaining a proper pip package or hosting an internal pip repository
 
-## Install python files as importable (from anywhere) modules
+## Install python files as importable modules
 
-Install your module with `nopkg`
+Install a single Python file as a module:
 
 ```sh
 nopkg install mymodule.py 
 ```
 
-Use it in python
+Install a directory as a package (will create `__init__.py` if needed):
+
+```sh
+nopkg install mypackage/
+```
+
+Use it in python:
 
 ```py
 from mymodule import hello
+from mypackage import utils
 
 hello("I just installed a module without any setup!")
 ```
 
-## Works with venv (of course)
+## Works with virtual environments
 
 ```sh
 # Create and activate virtual environment
@@ -38,56 +45,38 @@ nopkg install mymodule.py
 python -c "from mymodule import hello; hello('Virtual env works!')"
 ```
 
-## Editable installs 
+## Development mode installs 
 
 Install your python file(s) as an importable module, and keep them exactly where they are. Changes to
 your files will take effect immediately without any re-installing.
 
 ```sh
 nopkg install -e mymodule.py
-```
-
-## Install from URL
-
-No need to limit yourself to python modules you have locally, `nopkg` will happily download and
-install modules from a URL as well!
-
-```sh
-nopkg install https://raw.githubusercontent.com/user/repo/main/utils.py
+nopkg install --dev mypackage/
 ```
 
 
 ## Managing Installed Modules
 
-### Ensure the expected interpreter is being used
-
-```sh
-nopkg env current
-```
-
-`nopkg` should be reasonably smart about selecting the correct interpreter, but if you ever need to tell it explicitly 
-
-```sh
-nopkg env use /path/to/my/python
-```
-
-Most commands also accept a `--python` CLI option to use a specific interpreter for that command
-
-```
-nopkg install mymodule --python /path/to/my/python
-```
-
 ### List installed modules
 ```sh
-nopkg ls
+nopkg list
+```
+
+### Show module information
+```sh
+nopkg info mymodule
+```
+
+### Update an installed module
+```sh
+nopkg update mymodule
 ```
 
 ### Remove an installed module
 ```sh
 nopkg uninstall mymodule
 ```
-
-## Real-world Examples
 
 ## Installation
 
@@ -97,13 +86,12 @@ pip install nopkg
 
 ## How it works
 
-`nopkg` installs packages directly into python's site-packages directory. It doesn't do all of the things
-that pip does, it's much more simple. Either:
+`nopkg` installs modules and packages directly into Python's site-packages directory. It's much simpler than pip and works in one of two ways:
 
-- a) a `.pth` file gets added to site-packages, which tells python the location (absolute path) of your module. This is essenially the same as appending to `sys.path`, but is applied automatically. This is how ediable installs in pip work as well
-- b) your source files are copied directly into site-packages as-is. Roughly equivelent to a source install with pip
+- **Development mode (`-e` or `--dev`)**: Creates a `.pth` file in site-packages that points to your module's location. Changes to your files are immediately available without reinstalling.
+- **Copy mode (default)**: Copies your source files directly into site-packages.
 
-In order to make sure you don't leave your site-packages in a bad state, `nopkg` keeps a simple registry file to track what is insalled where. This drives the `nopkg ls` command as well as enabling `nopkg uninstall`. 
+`nopkg` maintains a simple registry file (`~/.nopkg/registry.txt`) to track installations, enabling the `list`, `info`, `update`, and `uninstall` commands.
 
 All this means:
 
@@ -111,18 +99,35 @@ All this means:
 - No `pyproject.toml` needed
 - No wheel building
 
-But also means:
+**Limitations:**
 
-- You can't publish to PyPI (still need setup.py or pyproject.toml for that)
-- You can't use C extensions or other native bindings
-   - `nodtl` will copy **ALL** the files into site-packages when you give a directory -- so there is a chance this might actually work, but it isn't a supported use case
-- Inter-module dependencies can be a mess
+- Cannot publish to PyPI (still need setup.py or pyproject.toml for that)
+- No dependency management - you must manually ensure dependencies are installed
+- Only works with local files and directories (no URL installation)
+- Package directories are copied entirely, preserving all resource files and assets
 
 `nopkg` is intended as a tool for personal utility management and prototyping, as well as sharing of ad-hoc utility modules within a team. `nopkg` is NOT intended as a pip replacement or production package management solution. It is a bridge that lets you get going quickly.
 
-## Things `nopkg` might do in the future! (Contributions Welcome)
+## Available Commands
 
-- `nopkg pipify mymodule.py`: Setup the boilerplate for full python packaging and pypi publishing
+```
+nopkg install <source>     # Install a module or package
+nopkg install -e <source>  # Install in development mode  
+nopkg list                 # List installed modules
+nopkg info <module>        # Show module information
+nopkg update <module>      # Update an installed module
+nopkg uninstall <module>   # Remove an installed module
+```
+
+**Note**: The core functionality supports specifying different Python interpreters, but the CLI doesn't expose this feature yet.
+
+## Future Features (Contributions Welcome!)
+
+- **URL Installation**: `nopkg install https://raw.githubusercontent.com/user/repo/main/utils.py`
+- **CLI Python Interpreter Selection**: `nopkg install mymodule --python /path/to/python`
+- **Environment Management**: `nopkg env current`, `nopkg env use /path/to/python`
+- **Package Bootstrapping**: `nopkg pipify mymodule.py` - Setup boilerplate for full Python packaging and PyPI publishing
+- **Dependency Detection**: Automatically detect and warn about missing dependencies
 
 ## License
 
