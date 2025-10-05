@@ -8,9 +8,9 @@ from typing import Dict, Any, List
 def analyze_package(package_path: Path) -> Dict[str, Any]:
     """Analyze a Python package to extract importable items from all modules."""
     if not package_path.is_dir() or not (package_path / "__init__.py").exists():
-        return {'modules': [], 'functions': [], 'classes': [], 'variables': []}
+        return {'modules': [], 'functions': [], 'classes': [], 'variables': [], 'submodule_details': {}}
     
-    package_analysis = {'modules': [], 'functions': [], 'classes': [], 'variables': []}
+    package_analysis = {'modules': [], 'functions': [], 'classes': [], 'variables': [], 'submodule_details': {}}
     
     # Analyze __init__.py to find what's exported
     init_file = package_path / "__init__.py"
@@ -47,11 +47,18 @@ def analyze_package(package_path: Path) -> Dict[str, Any]:
         except (SyntaxError, UnicodeDecodeError, OSError):
             pass
     
-    # Find all Python modules in the package (excluding private ones)
+    # Find all Python modules in the package and analyze them deeply
     for py_file in package_path.glob('*.py'):
         if py_file.name != '__init__.py' and not py_file.stem.startswith('_'):
             module_name = py_file.stem
             package_analysis['modules'].append(module_name)
+            
+            # Deeply analyze each submodule to get its contents
+            submodule_analysis = analyze_module(py_file)
+            package_analysis['submodule_details'][module_name] = {
+                'functions': [f for f in submodule_analysis['functions'] if not f['name'].startswith('_')],
+                'classes': [c for c in submodule_analysis['classes'] if not c['name'].startswith('_')]
+            }
     
     return package_analysis
 
@@ -122,15 +129,131 @@ def analyze_module(file_path: Path) -> Dict[str, Any]:
 
 def _suggest_arg_value(arg: str) -> str:
     """Suggest a value for a parameter based on its name."""
+    # Remove default value indicators
+    arg = arg.replace('=...', '')
     arg_lower = arg.lower()
-    if 'name' in arg_lower:
-        return '"World"'
-    if any(word in arg_lower for word in ['text', 'string', 'word']):
+    
+    # Address/email parameters
+    if any(word in arg_lower for word in ['email', 'mail', 'to_address', 'from_address']):
+        return '"user@example.com"'
+    if 'address' in arg_lower:
+        return '"123 Main St"'
+    
+    # String-like parameters
+    if any(word in arg_lower for word in ['name', 'username', 'user']):
+        return '"alice"'
+    if any(word in arg_lower for word in ['title', 'heading', 'label']):
+        return '"My Title"'
+    if any(word in arg_lower for word in ['subject']):
+        return '"Important Message"'
+    if any(word in arg_lower for word in ['body', 'text', 'string', 'msg', 'content']):
         return '"hello world"'
-    if any(word in arg_lower for word in ['radius', 'num', 'n']):
-        return '5'
-    if arg_lower in ('a', 'b'):
+    if 'message' in arg_lower and not 'messages' in arg_lower:  # single message
+        return '"hello world"'
+    if any(word in arg_lower for word in ['path', 'filepath', 'filename', 'file']):
+        return '"data.txt"'
+    if any(word in arg_lower for word in ['url', 'uri', 'link', 'endpoint']):
+        return '"https://api.example.com"'
+    if any(word in arg_lower for word in ['api_key', 'token']) and 'max' not in arg_lower:
+        return '"sk-abc123"'
+    if 'key' in arg_lower and 'max' not in arg_lower and 'api' not in arg_lower:
+        return '"key123"'
+    if 'id' in arg_lower:
+        return '"id_123"'
+    if any(word in arg_lower for word in ['method', 'mode', 'type', 'format', 'style']):
+        return '"default"'
+    if any(word in arg_lower for word in ['model']):
+        return '"gpt-4"'
+    if any(word in arg_lower for word in ['password', 'secret']):
+        return '"secure_pass123"'
+    if any(word in arg_lower for word in ['base_url']):
+        return '"https://api.example.com"'
+    
+    # Collection parameters - check before numeric ones
+    if any(word in arg_lower for word in ['messages']):
+        return '[{"role": "user", "content": "hello"}]'
+    if any(word in arg_lower for word in ['headers', 'header']):
+        return '{"Content-Type": "application/json"}'
+    if any(word in arg_lower for word in ['attachments', 'files']):
+        return '["file1.txt", "file2.pdf"]'
+    if any(word in arg_lower for word in ['cc', 'bcc']):
+        return '["user@example.com"]'
+    if any(word in arg_lower for word in ['params', 'parameters']):
+        return '{"key": "value"}'
+    if any(word in arg_lower for word in ['tags', 'labels']):
+        return '["tag1", "tag2"]'
+    
+    # Numeric parameters (most specific first)
+    if 'max_tokens' in arg_lower or 'max_token' in arg_lower:
+        return '1000'
+    if 'top_p' in arg_lower:
+        return '0.9'
+    if any(word in arg_lower for word in ['temperature', 'temp']):
+        return '0.7'
+    if any(word in arg_lower for word in ['threshold']):
+        return '0.5'
+    if any(word in arg_lower for word in ['timeout', 'delay']):
+        return '30'
+    if any(word in arg_lower for word in ['window', 'window_size']):
         return '10'
+    if any(word in arg_lower for word in ['port']):
+        return '8080'
+    if any(word in arg_lower for word in ['count', 'num', 'number', 'n']):
+        return '10'
+    if any(word in arg_lower for word in ['size', 'length', 'width', 'height']):
+        return '100'
+    if any(word in arg_lower for word in ['value', 'val', 'amount']):
+        return '42'
+    if any(word in arg_lower for word in ['index', 'idx', 'position', 'pos']):
+        return '0'
+    if any(word in arg_lower for word in ['max', 'limit']):
+        return '100'
+    if any(word in arg_lower for word in ['min', 'minimum']):
+        return '0'
+    
+    # Boolean-like parameters
+    if any(word in arg_lower for word in ['enable', 'enabled', 'flag', 'verbose', 'debug', 'stream']):
+        return 'True'
+    if any(word in arg_lower for word in ['normalize', 'strict', 'async']):
+        return 'True'
+    
+    # Additional collection parameters
+    if any(word in arg_lower for word in ['list', 'items', 'values']):
+        return '[1, 2, 3]'
+    if any(word in arg_lower for word in ['data']):
+        return '{"field": "value"}'
+    if any(word in arg_lower for word in ['dict', 'mapping', 'config', 'options', 'settings']):
+        return '{"option": "value"}'
+    if any(word in arg_lower for word in ['array', 'numbers']):
+        return '[1, 2, 3]'
+    
+    # Generic defaults based on common single letters
+    if arg_lower in ('a', 'b', 'x', 'y'):
+        return '10'
+    if arg_lower in ('i', 'j', 'k'):
+        return '0'
+    if arg_lower in ('s', 'str'):
+        return '"text"'
+    
+    # Ultimate fallback - try to guess from type patterns
+    # If it ends with common suffixes
+    if arg_lower.endswith(('_str', '_text')):
+        return '"text"'
+    if arg_lower.endswith(('_int', '_num')):
+        return '42'
+    if arg_lower.endswith(('_bool', '_flag')):
+        return 'True'
+    if arg_lower.endswith(('_list', '_array')):
+        return '[]'
+    if arg_lower.endswith(('_dict', '_map')):
+        return '{}'
+    
+    # Final intelligent fallback
+    # If it looks like it should be a string (has underscores or is CamelCase)
+    if '_' in arg_lower or (arg and arg[0].isupper()):
+        return '"value"'
+    
+    # Numeric fallback
     return '42'
 
 
@@ -167,23 +290,71 @@ def generate_package_usage_examples(package_name: str, analysis: Dict[str, Any])
             examples.append(f"                            {', '.join(importable_items[2:])})")
         examples.append("")
     
-    # Show submodules if any
+    # Show submodules with their contents
     if public_modules:
-        examples.append("# Submodules:")
-        for mod in public_modules[:5]:
+        submodule_details = analysis.get('submodule_details', {})
+        
+        for mod in public_modules[:5]:  # Show up to 5 submodules
+            examples.append(f"# {package_name}.{mod}:")
             examples.append(f"from {package_name} import {mod}")
-        examples.append("")
+            
+            # Show what's in the submodule
+            if mod in submodule_details:
+                details = submodule_details[mod]
+                
+                # Show functions from submodule
+                if details.get('functions'):
+                    func_names = [f['name'] for f in details['functions'][:3]]
+                    if func_names:
+                        examples.append(f"from {package_name}.{mod} import {', '.join(func_names)}")
+                        # Show usage example for first function
+                        first_func = details['functions'][0]
+                        if first_func['args']:
+                            args_str = ', '.join(_suggest_arg_value(arg) for arg in first_func['args'][:2])
+                            examples.append(f"{mod}.{first_func['name']}({args_str})")
+                        else:
+                            examples.append(f"{mod}.{first_func['name']}()")
+                
+                # Show classes from submodule
+                if details.get('classes'):
+                    class_names = [c['name'] for c in details['classes'][:2]]
+                    if class_names:
+                        examples.append(f"from {package_name}.{mod} import {', '.join(class_names)}")
+                        # Show usage example for first class
+                        first_class = details['classes'][0]
+                        examples.append(f"obj = {first_class['name']}()")
+            
+            examples.append("")
     
-    # Show usage examples for functions
+    # Show detailed usage examples for functions
     if public_functions:
-        examples.append("# Functions:")
-        for func in public_functions[:5]:
+        for func in public_functions[:3]:  # Show top 3 functions in detail
+            # Add docstring as comment if available
+            if func.get('docstring'):
+                docstring = func['docstring'].split('\n')[0].strip()  # First line only
+                if docstring:
+                    examples.append(f"# {func['name']}: {docstring}")
+            
+            # Show function signature
             if func['args']:
-                args_str = ', '.join(_suggest_arg_value(arg) for arg in func['args'][:3])
-                examples.append(f"{package_name}.{func['name']}({args_str})")
+                args_display = ', '.join(func['args'])
+                examples.append(f"{package_name}.{func['name']}({args_display})")
+                
+                # Show example call with smart parameter values
+                arg_values = []
+                for arg in func['args'][:5]:
+                    suggested = _suggest_arg_value(arg)
+                    # For optional params (with =...), show the param name
+                    if '=...' in arg:
+                        param_name = arg.replace('=...', '')
+                        arg_values.append(f"{param_name}={suggested}")
+                    else:
+                        arg_values.append(suggested)
+                examples.append(f"{package_name}.{func['name']}({', '.join(arg_values)})")
             else:
                 examples.append(f"{package_name}.{func['name']}()")
-        examples.append("")
+            
+            examples.append("")
     
     # Show usage for exported variables/callables
     if public_variables:
@@ -205,7 +376,7 @@ def generate_package_usage_examples(package_name: str, analysis: Dict[str, Any])
             if public_methods:
                 method = public_methods[0]
                 if method['args']:
-                    args_str = ', '.join(['...' for _ in method['args'][:2]])
+                    args_str = ', '.join([_suggest_arg_value(arg) for arg in method['args'][:2]])
                     examples.append(f"obj.{method['name']}({args_str})")
                 else:
                     examples.append(f"obj.{method['name']}()")
@@ -255,16 +426,35 @@ def generate_usage_examples(module_name: str, analysis: Dict[str, Any]) -> List[
             examples.append(f"from {module_name} import {', '.join(class_names)}")
         examples.append("")
     
-    # Show function usage examples
+    # Show detailed function usage examples
     if public_functions:
-        examples.append("# Functions:")
-        for func in public_functions[:5]:
+        for func in public_functions[:5]:  # Show up to 5 functions
+            # Add docstring as comment if available
+            if func.get('docstring'):
+                docstring = func['docstring'].split('\n')[0].strip()  # First line only
+                if docstring:
+                    examples.append(f"# {func['name']}: {docstring}")
+            
+            # Show function signature
             if func['args']:
-                args_str = ', '.join(_suggest_arg_value(arg.replace('=...', '')) for arg in func['args'][:3])
-                examples.append(f"{func['name']}({args_str})")
+                args_display = ', '.join(func['args'])
+                examples.append(f"{func['name']}({args_display})")
+                
+                # Show example call with smart parameter values
+                arg_values = []
+                for arg in func['args'][:5]:
+                    suggested = _suggest_arg_value(arg)
+                    # For optional params (with =...), show the param name
+                    if '=...' in arg:
+                        param_name = arg.replace('=...', '')
+                        arg_values.append(f"{param_name}={suggested}")
+                    else:
+                        arg_values.append(suggested)
+                examples.append(f"{func['name']}({', '.join(arg_values)})")
             else:
                 examples.append(f"{func['name']}()")
-        examples.append("")
+            
+            examples.append("")
     
     # Show class usage examples
     if public_classes:
@@ -275,7 +465,7 @@ def generate_usage_examples(module_name: str, analysis: Dict[str, Any]) -> List[
             public_methods = [m for m in cls.get('methods', []) if not m['name'].startswith('_')]
             for method in public_methods[:2]:
                 if method['args']:
-                    args_str = ', '.join(['...' for _ in method['args'][:2]])
+                    args_str = ', '.join([_suggest_arg_value(arg) for arg in method['args'][:3]])
                     examples.append(f"obj.{method['name']}({args_str})")
                 else:
                     examples.append(f"obj.{method['name']}()")
