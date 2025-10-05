@@ -22,23 +22,9 @@ def analyze_module(file_path: Path) -> Dict[str, Any]:
         
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and not node.name.startswith('_'):
-                # Get function signature
-                args = []
-                for arg in node.args.args:
-                    if arg.arg != 'self':  # Skip self parameter
-                        args.append(arg.arg)
-                
-                # Get defaults
-                defaults = []
-                if node.args.defaults:
-                    defaults = ['...' for _ in node.args.defaults]
-                
-                # Combine args with defaults
-                if defaults:
-                    non_default_count = len(args) - len(defaults)
-                    formatted_args = args[:non_default_count] + [f"{arg}=..." for arg in args[non_default_count:]]
-                else:
-                    formatted_args = args
+                args = [arg.arg for arg in node.args.args if arg.arg != 'self']
+                num_defaults = len(node.args.defaults)
+                formatted_args = args[:-num_defaults] + [f"{arg}=..." for arg in args[-num_defaults:]] if num_defaults else args
                 
                 functions.append({
                     'name': node.name,
@@ -82,6 +68,20 @@ def analyze_module(file_path: Path) -> Dict[str, Any]:
         return {'functions': [], 'classes': [], 'variables': []}
 
 
+def _suggest_arg_value(arg: str) -> str:
+    """Suggest a value for a parameter based on its name."""
+    arg_lower = arg.lower()
+    if 'name' in arg_lower:
+        return '"World"'
+    if any(word in arg_lower for word in ['text', 'string', 'word']):
+        return '"hello world"'
+    if any(word in arg_lower for word in ['radius', 'num', 'n']):
+        return '5'
+    if arg_lower in ('a', 'b'):
+        return '10'
+    return '42'
+
+
 def generate_usage_examples(module_name: str, analysis: Dict[str, Any]) -> List[str]:
     """Generate usage examples based on module analysis."""
     examples = []
@@ -111,20 +111,7 @@ def generate_usage_examples(module_name: str, analysis: Dict[str, Any]) -> List[
     # Function usage examples
     for func in analysis['functions'][:2]:  # Limit to first 2 functions
         if func['args']:
-            # Smart parameter suggestions based on parameter names
-            suggested_args = []
-            for arg in func['args'][:2]:
-                if 'name' in arg.lower():
-                    suggested_args.append('"World"')
-                elif 'text' in arg.lower() or 'string' in arg.lower() or 'word' in arg.lower():
-                    suggested_args.append('"hello world"')
-                elif 'radius' in arg.lower() or 'num' in arg.lower() or 'n' in arg.lower():
-                    suggested_args.append('5')
-                elif 'a' == arg.lower() or 'b' == arg.lower():
-                    suggested_args.append('10')
-                else:
-                    suggested_args.append('42')
-            args_str = ', '.join(suggested_args)
+            args_str = ', '.join(_suggest_arg_value(arg) for arg in func['args'][:2])
             usage_examples.append(f"{module_name}.{func['name']}({args_str})")
         else:
             usage_examples.append(f"{module_name}.{func['name']}()")

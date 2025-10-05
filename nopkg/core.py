@@ -1,6 +1,5 @@
 """Core functionality for nopkg module installation."""
 
-import os
 import sys
 import shutil
 import subprocess
@@ -79,15 +78,9 @@ def install_module(source: str, name: Optional[str] = None, dev_mode: bool = Fal
         
         if dev_mode:
             # Create .pth file for development mode
-            pth_filename = f"nopkg_{module_name}.pth"
-            pth_path = site_packages / pth_filename
-            
-            # Write the .pth file with the absolute path to the source directory
-            # (source_path is always a file at this point)
-            pth_content = str(source_path.parent.absolute())
-            pth_path.write_text(pth_content + "\n")
+            pth_path = site_packages / f"nopkg_{module_name}.pth"
+            pth_path.write_text(str(source_path.parent.absolute()) + "\n")
         else:
-            # Copy the file
             shutil.copy2(source_path, target_path)
         
         # Register the installation
@@ -124,12 +117,8 @@ def _install_directory(source_dir: Path, site_packages: Path, name: Optional[str
                 continue  # Skip existing modules
             
             if dev_mode:
-                # Create .pth file for development mode
-                pth_filename = f"nopkg_{module_name}.pth"
-                pth_path = site_packages / pth_filename
-                # Add the parent directory to path so the module can be imported
-                pth_content = str(py_file.parent.absolute())
-                pth_path.write_text(pth_content + "\n")
+                pth_path = site_packages / f"nopkg_{module_name}.pth"
+                pth_path.write_text(str(py_file.parent.absolute()) + "\n")
             else:
                 shutil.copy2(py_file, target_path)
             
@@ -159,23 +148,16 @@ def uninstall_module(module_name: str, python_executable: str = sys.executable) 
         return False, f"Module {module_name} is not installed"
     
     try:
-        removed_something = False
-        
         # Remove the module file if it exists
         if target_path.exists():
             target_path.unlink()
-            removed_something = True
         
         # Remove the .pth file if it exists (dev mode installation)
         if pth_path.exists():
             pth_path.unlink()
-            removed_something = True
         
-        if removed_something:
-            _unregister_module(module_name)
-            return True, f"Successfully uninstalled module '{module_name}'"
-        else:
-            return False, f"No files found for module '{module_name}'"
+        _unregister_module(module_name)
+        return True, f"Successfully uninstalled module '{module_name}'"
             
     except PermissionError:
         return False, f"Permission denied: cannot remove files for {module_name}"
@@ -190,41 +172,24 @@ def list_installed_modules() -> List[str]:
 
 def update_module(module_name: str) -> Tuple[bool, str]:
     """Update an installed module by reinstalling from its original source."""
-    # Find the module in the registry
     registry_path = _get_registry_path()
     if not registry_path.exists():
         return False, f"Module '{module_name}' not found"
     
-    module_info = None
+    # Find module in registry
     with open(registry_path, 'r') as f:
         for line in f:
-            line = line.strip()
-            if line and line.startswith(f"{module_name}|"):
-                parts = line.split('|')
+            if line.strip().startswith(f"{module_name}|"):
+                parts = line.strip().split('|')
                 if len(parts) >= 3:
-                    module_info = {
-                        'name': parts[0],
-                        'source': parts[1],
-                        'mode': parts[2]
-                    }
-                break
+                    source, mode = parts[1], parts[2]
+                    # Uninstall and reinstall
+                    success, msg = uninstall_module(module_name)
+                    if not success:
+                        return False, f"Failed to uninstall: {msg}"
+                    return install_module(source, module_name, mode == 'dev')[:2]
     
-    if not module_info:
-        return False, f"Module '{module_name}' not found in registry"
-    
-    # Uninstall the existing module
-    success, message = uninstall_module(module_name)
-    if not success:
-        return False, f"Failed to uninstall existing module: {message}"
-    
-    # Reinstall with the same settings
-    dev_mode = module_info['mode'] == 'dev'
-    success, message, _ = install_module(module_info['source'], module_name, dev_mode)
-    
-    if success:
-        return True, f"Successfully updated module '{module_name}'"
-    else:
-        return False, f"Failed to reinstall module: {message}"
+    return False, f"Module '{module_name}' not found in registry"
 
 
 def _get_registry_path() -> Path:
@@ -247,9 +212,7 @@ def _register_module(name: str, source: str, dev_mode: bool):
             entries = [line.strip() for line in f if line.strip()]
     
     # Add new entry
-    mode = "dev" if dev_mode else "copy"
-    entry = f"{name}|{source}|{mode}"
-    entries.append(entry)
+    entries.append(f"{name}|{source}|{'dev' if dev_mode else 'copy'}")
     
     # Write back to registry
     with open(registry_path, 'w') as f:
