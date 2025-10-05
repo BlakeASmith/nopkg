@@ -135,8 +135,6 @@ nopkg update <module>          # Update an installed module
 nopkg uninstall <modules...>   # Remove installed modules (supports glob patterns)
 ```
 
-**Note**: The core functionality supports specifying different Python interpreters, but the CLI doesn't expose this feature yet.
-
 ## Future Features (Contributions Welcome!)
 
 - **URL Installation**: `nopkg install https://raw.githubusercontent.com/user/repo/main/utils.py`
