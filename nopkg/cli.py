@@ -164,6 +164,7 @@ def update(module_name: str):
 @click.argument("module_name")
 def info(module_name: str):
     """Show information about an installed module."""
+    import json
     from .core import _get_registry_path
     
     registry_path = _get_registry_path()
@@ -172,22 +173,49 @@ def info(module_name: str):
         click.echo(click.style(f"No information found for module '{module_name}'", fg='red'), err=True)
         return
     
-    found = False
-    with open(registry_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line and line.startswith(f"{module_name}|"):
-                parts = line.split('|')
-                if len(parts) >= 3:
-                    name, source, mode = parts[0], parts[1], parts[2]
-                    click.echo(f"Module: {name}")
-                    click.echo(f"Source: {source}")
-                    click.echo(f"Mode: {mode}")
-                    found = True
-                    break
+    try:
+        with open(registry_path, 'r') as f:
+            modules = json.load(f)
+        
+        if module_name not in modules:
+            click.echo(click.style(f"Module '{module_name}' not found", fg='red'), err=True)
+            return
+        
+        module_info = modules[module_name]
+        click.echo(f"Module: {module_name}")
+        click.echo(f"Source: {module_info['source']}")
+        click.echo(f"Mode: {module_info['mode']}")
+        
+    except (json.JSONDecodeError, OSError, KeyError):
+        click.echo(click.style(f"Error reading module information for '{module_name}'", fg='red'), err=True)
+
+
+@cli.command()
+@click.argument("module_name")
+def usage(module_name: str):
+    """Show usage examples for an installed module."""
+    from .core import get_module_usage
     
-    if not found:
+    usage_examples = get_module_usage(module_name)
+    
+    if usage_examples is None:
         click.echo(click.style(f"Module '{module_name}' not found", fg='red'), err=True)
+        return
+    
+    if not usage_examples:
+        click.echo(click.style(f"No usage examples available for '{module_name}'", fg='yellow'))
+        return
+    
+    # Output examples directly without redundant header
+    for example in usage_examples:
+        if example == "":  # Preserve blank lines for readability
+            click.echo()
+        elif example.startswith('#'):
+            click.echo(click.style(example, fg='yellow'))
+        else:
+            click.echo(example)
+
+
 
 
 def _expand_patterns(patterns: tuple, glob_func, exists_func, all_items_func=None) -> List[str]:

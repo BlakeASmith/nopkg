@@ -3,6 +3,7 @@
 import sys
 import shutil
 import subprocess
+import json
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 
@@ -161,6 +162,7 @@ def _install_package(source_dir: Path, site_packages: Path, dev_mode: bool) -> T
             shutil.copytree(source_dir, target_path)
         
         _register_module(package_name, str(source_dir), dev_mode)
+        analysis_data = analyze_package(source_dir)
         action = "updated" if is_update else "installed"
         return True, f"Successfully {action} package '{package_name}'"
         
@@ -223,19 +225,26 @@ def update_module(module_name: str) -> Tuple[bool, str]:
         return False, f"Module '{module_name}' not found"
     
     # Find module in registry
-    with open(registry_path, 'r') as f:
-        for line in f:
-            if line.strip().startswith(f"{module_name}|"):
-                parts = line.strip().split('|')
-                if len(parts) >= 3:
-                    source, mode = parts[1], parts[2]
-                    # Uninstall and reinstall
-                    success, msg = uninstall_module(module_name)
-                    if not success:
-                        return False, f"Failed to uninstall: {msg}"
-                    return install_module(source, mode == 'dev')[:2]
-    
-    return False, f"Module '{module_name}' not found in registry"
+    try:
+        with open(registry_path, 'r') as f:
+            modules = json.load(f)
+        
+        if module_name not in modules:
+            return False, f"Module '{module_name}' not found in registry"
+        
+        module_info = modules[module_name]
+        source = module_info["source"]
+        mode = module_info["mode"]
+        
+        # Uninstall and reinstall
+        success, msg = uninstall_module(module_name)
+        if not success:
+            return False, f"Failed to uninstall: {msg}"
+        
+        return install_module(source, mode == 'dev')[:2]
+        
+    except (json.JSONDecodeError, OSError, KeyError):
+        return False, f"Failed to read registry or find module '{module_name}'"
 
 
 def _get_registry_path() -> Path:
@@ -244,26 +253,31 @@ def _get_registry_path() -> Path:
     home = Path.home()
     nopkg_dir = home / ".nopkg"
     nopkg_dir.mkdir(exist_ok=True)
-    return nopkg_dir / "registry.txt"
+    return nopkg_dir / "registry.json"
 
 
 def _register_module(name: str, source: str, dev_mode: bool):
     """Register a module installation in the registry."""
     registry_path = _get_registry_path()
     
-    # Read existing entries
-    entries = []
+    # Read existing registry or create empty
+    modules = {}
     if registry_path.exists():
-        with open(registry_path, 'r') as f:
-            entries = [line.strip() for line in f if line.strip()]
+        try:
+            with open(registry_path, 'r') as f:
+                modules = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            modules = {}
     
-    # Add new entry
-    entries.append(f"{name}|{source}|{'dev' if dev_mode else 'copy'}")
+    # Add/update module entry
+    modules[name] = {
+        "source": source,
+        "mode": "dev" if dev_mode else "copy"
+    }
     
     # Write back to registry
     with open(registry_path, 'w') as f:
-        for entry in entries:
-            f.write(entry + '\n')
+        json.dump(modules, f, indent=2)
 
 
 def _unregister_module(name: str):
@@ -273,17 +287,19 @@ def _unregister_module(name: str):
     if not registry_path.exists():
         return
     
-    # Read existing entries
-    with open(registry_path, 'r') as f:
-        entries = [line.strip() for line in f if line.strip()]
+    # Read existing registry
+    try:
+        with open(registry_path, 'r') as f:
+            modules = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return
     
-    # Filter out the module
-    filtered_entries = [e for e in entries if not e.startswith(f"{name}|")]
+    # Remove the module
+    modules.pop(name, None)
     
     # Write back to registry
     with open(registry_path, 'w') as f:
-        for entry in filtered_entries:
-            f.write(entry + '\n')
+        json.dump(modules, f, indent=2)
 
 
 def _get_registered_modules() -> List[str]:
@@ -293,14 +309,71 @@ def _get_registered_modules() -> List[str]:
     if not registry_path.exists():
         return []
     
-    modules = []
-    with open(registry_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line and '|' in line:
-                name = line.split('|')[0]
-                modules.append(name)
+    try:
+        with open(registry_path, 'r') as f:
+            modules = json.load(f)
+        return list(modules.keys())
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def get_module_usage(module_name: str) -> Optional[List[str]]:
+    """Get usage examples for a module by analyzing it on-the-fly."""
+    registry_path = _get_registry_path()
     
-    return modules
+    if not registry_path.exists():
+        return None
+    
+    # Check if module is registered
+    try:
+        with open(registry_path, 'r') as f:
+            modules = json.load(f)
+        
+        if module_name not in modules:
+            return None
+        
+        module_info = modules[module_name]
+        
+    except (json.JSONDecodeError, OSError):
+        return None
+    
+    # Find the installed module and analyze it
+    analysis_data = None
+    
+    if module_info["mode"] == "dev":
+        # Dev mode - analyze from source location
+        source_path = Path(module_info["source"])
+        
+        if source_path.is_file() and source_path.suffix == '.py':
+            # Single module file
+            from .analysis import analyze_module, generate_usage_examples
+            analysis_data = analyze_module(source_path)
+        elif source_path.is_dir():
+            # Package directory
+            from .analysis import analyze_package, generate_usage_examples
+            analysis_data = analyze_package(source_path)
+    else:
+        # Copy mode - check site-packages
+        site_packages = get_site_packages_dir()
+        if site_packages is None:
+            return None
+        
+        module_file = site_packages / f"{module_name}.py"
+        package_dir = site_packages / module_name
+        
+        if module_file.exists():
+            # Single module file
+            from .analysis import analyze_module, generate_usage_examples
+            analysis_data = analyze_module(module_file)
+        elif package_dir.exists() and package_dir.is_dir():
+            # Package directory
+            from .analysis import analyze_package, generate_usage_examples
+            analysis_data = analyze_package(package_dir)
+    
+    if analysis_data:
+        from .analysis import generate_usage_examples
+        return generate_usage_examples(module_name, analysis_data)
+    
+    return []
 
 

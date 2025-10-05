@@ -12,17 +12,44 @@ def analyze_package(package_path: Path) -> Dict[str, Any]:
     
     package_analysis = {'modules': [], 'functions': [], 'classes': [], 'variables': []}
     
-    # Analyze __init__.py first
+    # Analyze __init__.py to find what's exported
     init_file = package_path / "__init__.py"
     if init_file.exists():
         init_analysis = analyze_module(init_file)
         package_analysis['functions'].extend(init_analysis['functions'])
         package_analysis['classes'].extend(init_analysis['classes'])
         package_analysis['variables'].extend(init_analysis['variables'])
+        
+        # Also check for re-exported items from imports
+        try:
+            with open(init_file, 'r', encoding='utf-8') as f:
+                source = f.read()
+            tree = ast.parse(source)
+            
+            for node in tree.body:
+                # Check for "from module import item as name" patterns
+                if isinstance(node, ast.ImportFrom):
+                    for alias in node.names:
+                        # Skip star imports and private items
+                        if alias.name == '*' or alias.name.startswith('_'):
+                            continue
+                        
+                        # Use the alias name if provided, otherwise use the original name
+                        exported_name = alias.asname if alias.asname else alias.name
+                        
+                        # Don't add if it starts with underscore
+                        if not exported_name.startswith('_'):
+                            # Add as a variable/callable (we don't know if it's a function or class)
+                            if exported_name not in [f['name'] for f in package_analysis['functions']] and \
+                               exported_name not in [c['name'] for c in package_analysis['classes']] and \
+                               exported_name not in package_analysis['variables']:
+                                package_analysis['variables'].append(exported_name)
+        except (SyntaxError, UnicodeDecodeError, OSError):
+            pass
     
-    # Find all Python modules in the package
+    # Find all Python modules in the package (excluding private ones)
     for py_file in package_path.glob('*.py'):
-        if py_file.name != '__init__.py':
+        if py_file.name != '__init__.py' and not py_file.stem.startswith('_'):
             module_name = py_file.stem
             package_analysis['modules'].append(module_name)
     
@@ -108,94 +135,151 @@ def _suggest_arg_value(arg: str) -> str:
 
 
 def generate_package_usage_examples(package_name: str, analysis: Dict[str, Any]) -> List[str]:
-    """Generate concise usage examples for a Python package."""
-    import random
-    
+    """Generate comprehensive usage examples for a Python package."""
     examples = []
     
-    # Add basic import statement
+    # Filter out private items
+    public_modules = [m for m in analysis['modules'] if not m.startswith('_')]
+    public_functions = [f for f in analysis['functions'] if not f['name'].startswith('_')]
+    public_classes = [c for c in analysis['classes'] if not c['name'].startswith('_')]
+    public_variables = [v for v in analysis.get('variables', []) if not v.startswith('_')]
+    
+    # Basic import
     examples.append(f"import {package_name}")
+    examples.append("")
     
-    # Show sample submodule imports (max 2, random if many)
-    if analysis['modules']:
-        modules = analysis['modules']
-        sample_modules = random.sample(modules, min(2, len(modules)))
-        for mod in sample_modules:
-            examples.append(f"from {package_name} import {mod}")
+    # Show what's available to import
+    importable_items = []
+    if public_functions:
+        importable_items.extend([f['name'] for f in public_functions[:3]])
+    if public_classes:
+        importable_items.extend([c['name'] for c in public_classes[:2]])
+    if public_variables:
+        importable_items.extend(public_variables[:3])
     
-    # Show sample items from __init__.py (max 2 total)
-    available_items = []
-    
-    # Add functions
-    if analysis['functions']:
-        available_items.extend([f['name'] for f in analysis['functions']])
-    
-    # Add classes  
-    if analysis['classes']:
-        available_items.extend([c['name'] for c in analysis['classes']])
-    
-    # Show random sample
-    if available_items:
-        sample_items = random.sample(available_items, min(2, len(available_items)))
-        if len(sample_items) == 1:
-            examples.append(f"from {package_name} import {sample_items[0]}")
+    if importable_items:
+        if len(importable_items) == 1:
+            examples.append(f"from {package_name} import {importable_items[0]}")
+        elif len(importable_items) <= 3:
+            examples.append(f"from {package_name} import {', '.join(importable_items)}")
         else:
-            examples.append(f"from {package_name} import {', '.join(sample_items)}")
+            examples.append(f"from {package_name} import ({', '.join(importable_items[:2])},")
+            examples.append(f"                            {', '.join(importable_items[2:])})")
+        examples.append("")
+    
+    # Show submodules if any
+    if public_modules:
+        examples.append("# Submodules:")
+        for mod in public_modules[:5]:
+            examples.append(f"from {package_name} import {mod}")
+        examples.append("")
+    
+    # Show usage examples for functions
+    if public_functions:
+        examples.append("# Functions:")
+        for func in public_functions[:5]:
+            if func['args']:
+                args_str = ', '.join(_suggest_arg_value(arg) for arg in func['args'][:3])
+                examples.append(f"{package_name}.{func['name']}({args_str})")
+            else:
+                examples.append(f"{package_name}.{func['name']}()")
+        examples.append("")
+    
+    # Show usage for exported variables/callables
+    if public_variables:
+        examples.append("# Exported items:")
+        for var in public_variables[:5]:
+            # Assume it's callable if it looks like a function name
+            if var.islower() or '_' in var:
+                examples.append(f"{package_name}.{var}(...)")
+            else:
+                examples.append(f"{package_name}.{var}")
+        examples.append("")
+    
+    # Show usage for classes
+    if public_classes:
+        examples.append("# Classes:")
+        for cls in public_classes[:3]:
+            examples.append(f"obj = {package_name}.{cls['name']}()")
+            public_methods = [m for m in cls.get('methods', []) if not m['name'].startswith('_')]
+            if public_methods:
+                method = public_methods[0]
+                if method['args']:
+                    args_str = ', '.join(['...' for _ in method['args'][:2]])
+                    examples.append(f"obj.{method['name']}({args_str})")
+                else:
+                    examples.append(f"obj.{method['name']}()")
+            examples.append("")
+    
+    # Remove trailing empty line
+    while examples and examples[-1] == "":
+        examples.pop()
     
     return examples
 
 
 def generate_usage_examples(module_name: str, analysis: Dict[str, Any]) -> List[str]:
-    """Generate usage examples based on module analysis."""
+    """Generate comprehensive usage examples based on module analysis."""
     examples = []
     
     # Check if this is package analysis (has 'modules' key)
     if 'modules' in analysis:
         return generate_package_usage_examples(module_name, analysis)
     
-    # Add basic import statement
-    examples.append(f"import {module_name}")
+    # Filter out private items
+    public_functions = [f for f in analysis['functions'] if not f['name'].startswith('_')]
+    public_classes = [c for c in analysis['classes'] if not c['name'].startswith('_')]
     
-    # Generate function import examples
-    if analysis['functions']:
-        func_names = [f['name'] for f in analysis['functions'][:3]]  # Limit to first 3
+    # Basic import
+    examples.append(f"import {module_name}")
+    examples.append("")
+    
+    # Show function imports
+    if public_functions:
+        func_names = [f['name'] for f in public_functions[:5]]
         if len(func_names) == 1:
             examples.append(f"from {module_name} import {func_names[0]}")
-        elif len(func_names) > 1:
+        elif len(func_names) <= 3:
             examples.append(f"from {module_name} import {', '.join(func_names)}")
+        else:
+            examples.append(f"from {module_name} import ({', '.join(func_names[:3])},")
+            examples.append(f"                            {', '.join(func_names[3:])})")
+        examples.append("")
     
-    # Generate class import examples
-    if analysis['classes']:
-        class_names = [c['name'] for c in analysis['classes'][:2]]  # Limit to first 2
+    # Show class imports
+    if public_classes:
+        class_names = [c['name'] for c in public_classes[:3]]
         if len(class_names) == 1:
             examples.append(f"from {module_name} import {class_names[0]}")
-        elif len(class_names) > 1:
-            examples.append(f"from {module_name} import {', '.join(class_names)}")
-    
-    # Generate usage examples
-    usage_examples = []
-    
-    # Function usage examples
-    for func in analysis['functions'][:2]:  # Limit to first 2 functions
-        if func['args']:
-            args_str = ', '.join(_suggest_arg_value(arg) for arg in func['args'][:2])
-            usage_examples.append(f"{module_name}.{func['name']}({args_str})")
         else:
-            usage_examples.append(f"{module_name}.{func['name']}()")
+            examples.append(f"from {module_name} import {', '.join(class_names)}")
+        examples.append("")
     
-    # Class usage examples
-    for cls in analysis['classes'][:1]:  # Limit to first class
-        usage_examples.append(f"obj = {module_name}.{cls['name']}()")
-        if cls['methods']:
-            method = cls['methods'][0]
-            if method['args']:
-                args_str = ', '.join(['42' for _ in method['args'][:2]])
-                usage_examples.append(f"obj.{method['name']}({args_str})")
+    # Show function usage examples
+    if public_functions:
+        examples.append("# Functions:")
+        for func in public_functions[:5]:
+            if func['args']:
+                args_str = ', '.join(_suggest_arg_value(arg.replace('=...', '')) for arg in func['args'][:3])
+                examples.append(f"{func['name']}({args_str})")
             else:
-                usage_examples.append(f"obj.{method['name']}()")
+                examples.append(f"{func['name']}()")
+        examples.append("")
     
-    if usage_examples:
-        examples.append("\n# Usage examples:")
-        examples.extend(usage_examples)
+    # Show class usage examples
+    if public_classes:
+        examples.append("# Classes:")
+        for cls in public_classes[:3]:
+            examples.append(f"obj = {cls['name']}()")
+            # Show first few public methods
+            public_methods = [m for m in cls.get('methods', []) if not m['name'].startswith('_')]
+            for method in public_methods[:2]:
+                if method['args']:
+                    args_str = ', '.join(['...' for _ in method['args'][:2]])
+                    examples.append(f"obj.{method['name']}({args_str})")
+                else:
+                    examples.append(f"obj.{method['name']}()")
+            if public_classes.index(cls) < len(public_classes) - 1:
+                examples.append("")
     
     return examples
