@@ -60,6 +60,7 @@ def get_site_packages_dir(python_executable: str = sys.executable) -> Optional[P
 def install_module(source: str, dev_mode: bool = False, python_executable: str = sys.executable) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
     """
     Install a Python module from a source (file path or directory).
+    If the module is already installed by nopkg, update it instead.
     
     Args:
         source: Source path (local file or directory)
@@ -95,11 +96,19 @@ def install_module(source: str, dev_mode: bool = False, python_executable: str =
     module_name = source_path.stem
     target_path = site_packages / f"{module_name}.py"
     
+    # Check if this is an update operation
+    is_update = False
     if target_path.exists():
         existing_modules = _get_registered_modules()
         if module_name in existing_modules:
-            return False, f"Module '{module_name}' is already installed by nopkg. Use 'nopkg uninstall {module_name}' first.", None
-        return False, f"Module '{module_name}' already exists (not managed by nopkg)", None
+            # Module is managed by nopkg - update it
+            is_update = True
+            success, msg = uninstall_module(module_name)
+            if not success:
+                return False, f"Failed to update: {msg}", None
+            # Continue with installation after successful uninstall
+        else:
+            return False, f"Module '{module_name}' already exists (not managed by nopkg)", None
     
     try:
         if dev_mode:
@@ -110,7 +119,9 @@ def install_module(source: str, dev_mode: bool = False, python_executable: str =
         
         _register_module(module_name, source, dev_mode)
         analysis_data = analyze_module(target_path)
-        return True, f"Successfully installed module '{module_name}'", analysis_data
+        
+        action = "updated" if is_update else "installed"
+        return True, f"Successfully {action} module '{module_name}'", analysis_data
         
     except PermissionError:
         return False, f"Permission denied: cannot write to {site_packages}", None
@@ -123,15 +134,24 @@ def install_module(source: str, dev_mode: bool = False, python_executable: str =
 
 
 def _install_package(source_dir: Path, site_packages: Path, dev_mode: bool) -> Tuple[bool, str]:
-    """Install a Python package (directory with __init__.py)."""
+    """Install a Python package (directory with __init__.py).
+    If the package is already installed by nopkg, update it instead."""
     package_name = source_dir.name
     target_path = site_packages / package_name
     
+    # Check if this is an update operation
+    is_update = False
     if target_path.exists():
         existing_modules = _get_registered_modules()
         if package_name in existing_modules:
-            return False, f"Package '{package_name}' is already installed by nopkg. Use 'nopkg uninstall {package_name}' first."
-        return False, f"Package '{package_name}' already exists (not managed by nopkg)"
+            # Package is managed by nopkg - update it
+            is_update = True
+            success, msg = uninstall_module(package_name)
+            if not success:
+                return False, f"Failed to update: {msg}"
+            # Continue with installation after successful uninstall
+        else:
+            return False, f"Package '{package_name}' already exists (not managed by nopkg)"
     
     try:
         if dev_mode:
@@ -141,7 +161,8 @@ def _install_package(source_dir: Path, site_packages: Path, dev_mode: bool) -> T
             shutil.copytree(source_dir, target_path)
         
         _register_module(package_name, str(source_dir), dev_mode)
-        return True, f"Successfully installed package '{package_name}'"
+        action = "updated" if is_update else "installed"
+        return True, f"Successfully {action} package '{package_name}'"
         
     except PermissionError:
         return False, f"Permission denied: cannot write to {site_packages}"
@@ -172,7 +193,10 @@ def uninstall_module(module_name: str, python_executable: str = sys.executable) 
         
         # Remove the package directory if it exists
         if package_path.exists():
-            shutil.rmtree(package_path)
+            if package_path.is_dir():
+                shutil.rmtree(package_path)
+            else:
+                package_path.unlink()
         
         # Remove the .pth file if it exists (dev mode installation)
         if pth_path.exists():

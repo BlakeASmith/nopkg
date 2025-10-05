@@ -16,11 +16,21 @@ Install a single Python file as a module:
 nopkg install mymodule.py 
 ```
 
+Install multiple modules using glob patterns:
+
+```sh
+nopkg install *.py                    # Install all .py files
+nopkg install utils/*.py               # Install all .py files in utils/
+nopkg install one.py two.py three.py  # Install specific files
+```
+
 Install a directory as a package (will create `__init__.py` if needed):
 
 ```sh
 nopkg install mypackage/
 ```
+
+**Note**: If you run `nopkg install` on a module or package that's already installed by nopkg, it will automatically update it instead of giving an error.
 
 Use it in python:
 
@@ -78,6 +88,12 @@ nopkg update mymodule
 nopkg uninstall mymodule
 ```
 
+### Remove multiple modules using patterns
+```sh
+nopkg uninstall 'test_*'        # Remove all modules starting with 'test_'
+nopkg uninstall '*'             # Remove all installed modules
+```
+
 ## Installation
 
 ```sh
@@ -111,12 +127,12 @@ All this means:
 ## Available Commands
 
 ```
-nopkg install <source>     # Install a module or package
-nopkg install -e <source>  # Install in development mode  
-nopkg list                 # List installed modules
-nopkg info <module>        # Show module information
-nopkg update <module>      # Update an installed module
-nopkg uninstall <module>   # Remove an installed module
+nopkg install <sources...>     # Install modules/packages (supports glob patterns)
+nopkg install -e <sources...>  # Install in development mode  
+nopkg list                     # List installed modules
+nopkg info <module>            # Show module information
+nopkg update <module>          # Update an installed module
+nopkg uninstall <modules...>   # Remove installed modules (supports glob patterns)
 ```
 
 **Note**: The core functionality supports specifying different Python interpreters, but the CLI doesn't expose this feature yet.
