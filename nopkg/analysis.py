@@ -183,7 +183,7 @@ def _suggest_arg_value(arg: str) -> str:
     if any(word in arg_lower for word in ['tags', 'labels']):
         return '["tag1", "tag2"]'
     
-    # Numeric parameters (most specific first)
+    # Numeric parameters (most specific first, with meaningful values)
     if 'max_tokens' in arg_lower or 'max_token' in arg_lower:
         return '1000'
     if 'top_p' in arg_lower:
@@ -195,21 +195,47 @@ def _suggest_arg_value(arg: str) -> str:
     if any(word in arg_lower for word in ['timeout', 'delay']):
         return '30'
     if any(word in arg_lower for word in ['window', 'window_size']):
-        return '10'
+        return '5'
     if any(word in arg_lower for word in ['port']):
         return '8080'
+    if any(word in arg_lower for word in ['batch_size', 'batch']):
+        return '32'
+    if any(word in arg_lower for word in ['epoch']):
+        return '10'
+    if any(word in arg_lower for word in ['learning_rate', 'lr']):
+        return '0.001'
     if any(word in arg_lower for word in ['count', 'num', 'number', 'n']):
         return '10'
-    if any(word in arg_lower for word in ['size', 'length', 'width', 'height']):
+    if any(word in arg_lower for word in ['page', 'offset']):
+        return '1'
+    if any(word in arg_lower for word in ['size', 'length']):
         return '100'
-    if any(word in arg_lower for word in ['value', 'val', 'amount']):
-        return '42'
+    if any(word in arg_lower for word in ['width']):
+        return '800'
+    if any(word in arg_lower for word in ['height']):
+        return '600'
+    if any(word in arg_lower for word in ['price', 'cost']):
+        return '9.99'
+    if any(word in arg_lower for word in ['age']):
+        return '25'
+    if any(word in arg_lower for word in ['year']):
+        return '2024'
+    if any(word in arg_lower for word in ['rating', 'score']):
+        return '4.5'
+    if any(word in arg_lower for word in ['percent', 'percentage']):
+        return '75'
+    if any(word in arg_lower for word in ['distance']):
+        return '100.0'
     if any(word in arg_lower for word in ['index', 'idx', 'position', 'pos']):
         return '0'
     if any(word in arg_lower for word in ['max', 'limit']):
         return '100'
     if any(word in arg_lower for word in ['min', 'minimum']):
         return '0'
+    if any(word in arg_lower for word in ['quantity', 'qty', 'amount']):
+        return '5'
+    if any(word in arg_lower for word in ['value', 'val']):
+        return '100'
     
     # Boolean-like parameters
     if any(word in arg_lower for word in ['enable', 'enabled', 'flag', 'verbose', 'debug', 'stream']):
@@ -234,27 +260,35 @@ def _suggest_arg_value(arg: str) -> str:
         return '0'
     if arg_lower in ('s', 'str'):
         return '"text"'
+    if arg_lower in ('n'):
+        return '5'
     
     # Ultimate fallback - try to guess from type patterns
     # If it ends with common suffixes
-    if arg_lower.endswith(('_str', '_text')):
+    if arg_lower.endswith(('_str', '_text', '_name')):
         return '"text"'
-    if arg_lower.endswith(('_int', '_num')):
-        return '42'
+    if arg_lower.endswith(('_int', '_num', '_count')):
+        return '10'
     if arg_lower.endswith(('_bool', '_flag')):
         return 'True'
-    if arg_lower.endswith(('_list', '_array')):
+    if arg_lower.endswith(('_list', '_array', '_items')):
         return '[]'
-    if arg_lower.endswith(('_dict', '_map')):
+    if arg_lower.endswith(('_dict', '_map', '_obj')):
         return '{}'
+    if arg_lower.endswith(('_id')):
+        return '"id_123"'
+    if arg_lower.endswith(('_path')):
+        return '"path/to/file"'
+    if arg_lower.endswith(('_url')):
+        return '"https://example.com"'
     
     # Final intelligent fallback
     # If it looks like it should be a string (has underscores or is CamelCase)
     if '_' in arg_lower or (arg and arg[0].isupper()):
         return '"value"'
     
-    # Numeric fallback
-    return '42'
+    # Numeric fallback - use 1 instead of 42 for cleaner examples
+    return '1'
 
 
 def generate_package_usage_examples(package_name: str, analysis: Dict[str, Any]) -> List[str]:
