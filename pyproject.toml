@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nopkg"
-version = "0.1.0"
+version = "0.2.0"
 description = "Install your custom python modules into any python environment without setup.py, pyproject.toml, or any other typical python packaging setup"
 readme = "README.md"
 requires-python = ">=3.8"
