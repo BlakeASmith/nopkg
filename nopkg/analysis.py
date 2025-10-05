@@ -44,7 +44,8 @@ def analyze_module(file_path: Path) -> Dict[str, Any]:
         classes = []
         variables = []
         
-        for node in ast.walk(tree):
+        # Only look at top-level nodes, not nested ones
+        for node in tree.body:
             if isinstance(node, ast.FunctionDef) and not node.name.startswith('_'):
                 args = [arg.arg for arg in node.args.args if arg.arg != 'self']
                 num_defaults = len(node.args.defaults)
